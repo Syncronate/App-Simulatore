@@ -767,6 +767,8 @@ if __name__ == "__main__":
         st.session_state['range_previsione'] = None
     if 'valori_input' not in st.session_state:
         st.session_state['valori_input'] = None
+    if 'retrain_model' not in st.session_state:
+        st.session_state['retrain_model'] = False # Inizializza la variabile per il riallenamento
 
 
     dataset_csv = "dataset_idrologico.csv"
@@ -810,8 +812,11 @@ if __name__ == "__main__":
     input_size = X_train_scaled.shape[1]
     model, loaded_scaler = carica_modello(input_size)
 
-    if model is None or loaded_scaler is None:
-        st.info("Nessun modello esistente trovato. Addestramento di un nuovo modello...")
+    if model is None or loaded_scaler is None or st.session_state.get('retrain_model'): # Condizione MODIFICATA
+        if st.session_state.get('retrain_model'):
+            st.info("Riallenamento del modello richiesto dall'utente...")
+        else:
+            st.info("Nessun modello esistente trovato. Addestramento di un nuovo modello...")
 
         X_train_tensor = torch.tensor(X_train_scaled, dtype=torch.float32)
         X_test_tensor = torch.tensor(X_test_scaled, dtype=torch.float32)
@@ -849,6 +854,10 @@ if __name__ == "__main__":
         st.write(f'R^2 sul Test Set: {r2:.4f}')
 
         salva_modello(model, scaler)
+
+        if st.session_state.get('retrain_model'):
+            st.session_state['retrain_model'] = False # Resetta la variabile di sessione
+            st.sidebar.success("Modello riallenato con successo!") # Feedback di successo nella sidebar
     else:
         scaler = loaded_scaler
 
@@ -874,3 +883,8 @@ if __name__ == "__main__":
 
     st.sidebar.header("Informazioni")
     st.sidebar.info("Questa dashboard permette l'inserimento di dati idrologici, la visualizzazione del dataset, e l'esecuzione di simulazioni previsionali sul livello idrometrico. La parte grafica della simulazione è integrata direttamente nella dashboard sotto il form di simulazione.")
+
+    # Aggiungi il pulsante per riallenare il modello (AGGIUNTO)
+    if st.sidebar.button("Riallena Modello"):
+        st.session_state['retrain_model'] = True
+        st.sidebar.info("Riallenamento del modello in corso...") # Feedback per l'utente
