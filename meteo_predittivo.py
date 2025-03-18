@@ -26,6 +26,7 @@ def data_entry_form(df, file_path="dataset_idrologico.csv"):
     next_event_id = get_next_event_id(df)
 
     fields_info = {
+        "data": {"label": "Data Evento", "type": "date", "default": datetime.now(), "streamlit_type": st.date_input}, # ADDED Data field
         "evento": {"label": "ID Evento", "type": "int", "default": next_event_id, "streamlit_type": st.number_input, "kwargs": {"format": "%d", "disabled": True}},
         "saturazione_terreno": {"label": "Saturazione Terreno (%)", "type": "float", "default": 35.0, "streamlit_type": st.number_input, "kwargs": {"format": "%.2f"}},
         "ore_pioggia_totali": {"label": "Ore pioggia totali", "type": "float", "default": 0.0, "streamlit_type": st.number_input, "kwargs": {"format": "%.2f"}},
@@ -86,6 +87,8 @@ def validate_inputs(input_values, fields_info):
                 valid_data[field_name] = int(value)
             elif field_info["type"] == "float":
                 valid_data[field_name] = float(value)
+            elif field_info["type"] == "date": # Handle date type
+                valid_data[field_name] = value.strftime('%Y-%m-%d') # Format date to string YYYY-MM-DD
             else:
                 valid_data[field_name] = value
         except ValueError:
@@ -131,7 +134,8 @@ def view_dataset_streamlit(df):
                     help="Valore massimo registrato",
                     format="%.2f",
                     step=0.01
-                )
+                ),
+                "data": st.column_config.DateColumn("Data Evento", format="YYYY-MM-DD") # Display Data column as Date
             },
             use_container_width=True,
             hide_index=True
@@ -159,6 +163,12 @@ def prepare_initial_dataset(output_file="dataset_idrologico.csv"):
     if os.path.exists(output_file):
         try:
             df = pd.read_csv(output_file, sep='\t')
+            if 'data' in df.columns: # Try to parse 'data' column as datetime if exists
+                try:
+                    df['data'] = pd.to_datetime(df['data'])
+                except (ValueError, TypeError):
+                    st.warning("Impossibile convertire la colonna 'data' in formato data. Verificare il formato nel CSV.")
+
             st.success(f"File {output_file} caricato con successo.")
             return df
         except Exception as e:
@@ -166,7 +176,8 @@ def prepare_initial_dataset(output_file="dataset_idrologico.csv"):
             return pd.DataFrame() # Restituisci DataFrame vuoto in caso di errore
     else:
         st.info(f"File {output_file} non trovato. Inizializzando un dataset vuoto.")
-        return pd.DataFrame() # Restituisci DataFrame vuoto se il file non esiste
+        return pd.DataFrame(columns=['data', 'evento', 'saturazione_terreno', 'ore_pioggia_totali', 'cumulata_totale', 'pioggia_gg_precedenti', 'intensità_media', 'idrometria_1008_inizio', 'idrometria_1112_inizio', 'idrometria_1112_max', 'idrometria_1283_inizio', 'idrometria_3072_inizio']) # Return empty DataFrame with columns including 'data'
+
 
 ####################################################PARTE 2: SIMULAZIONE - Maschera per inserimento dati di simulazione (Streamlit)####################################################
 def simulation_data_entry_form(feature_defaults, on_submit):
@@ -253,16 +264,20 @@ def multiple_simulations_interface(model, scaler, model_mae, features_cols, df):
     # Aggiungi la possibilità di precompilare i campi da un evento esistente
     if not df.empty:
         st.subheader("Precompila campi da evento esistente")
-        eventi_disponibili = df['evento'].astype(str).tolist()
-        eventi_disponibili.insert(0, "Nessuno (usa valori predefiniti)")
-        selected_event = st.selectbox("Seleziona evento", eventi_disponibili)
+        eventi_disponibili = ["Nessuno (usa valori predefiniti)"] # Initialize with default option
+        for index, row in df.iterrows():
+            event_label = f"Evento ID: {row['evento']}, Data: {row['data'].strftime('%Y-%m-%d') if isinstance(row['data'], pd.Timestamp) else row['data']}, Cumulata: {row['cumulata_totale']:.2f}, Idro Max 1112: {row['idrometria_1112_max']:.2f}" # Formatted label
+            eventi_disponibili.append(event_label)
 
-        if selected_event != "Nessuno (usa valori predefiniti)":
-            event_data = df[df['evento'] == int(selected_event)].iloc[0]
+        selected_event_label = st.selectbox("Seleziona evento", eventi_disponibili)
+
+        if selected_event_label != "Nessuno (usa valori predefiniti)":
+            selected_event_id = int(selected_event_label.split("Evento ID: ")[1].split(",")[0]) # Extract event ID from label
+            event_data = df[df['evento'] == selected_event_id].iloc[0]
             for field in sim_defaults.keys():
                 if field in event_data:
                     sim_defaults[field] = float(event_data[field])
-            st.success(f"Campi precompilati con evento {selected_event}")
+            st.success(f"Campi precompilati con evento {selected_event_id}")
 
     # Container per il modulo di input e il grafico
     col1, col2 = st.columns([1, 2])
@@ -781,10 +796,16 @@ if __name__ == "__main__":
     df.columns = df.columns.str.strip().str.lower().str.replace(' ', '_')
 
     for col in df.columns:
-        if col != 'evento':
+        if col != 'evento' and col != 'data': # Exclude 'data' column from numeric conversion
             df[col] = df[col].str.replace(',', '.', regex=False).astype(float)
     df['evento'] = df['evento'].astype(int)
+    if 'data' in df.columns: # Convert 'data' column to datetime after reload
+        try:
+            df['data'] = pd.to_datetime(df['data'])
+        except (ValueError, TypeError):
+            st.warning("Impossibile convertire la colonna 'data' in formato data. Verificare il formato nel CSV.")
     st.session_state['dataset'] = df # Update dataset in session state
+
 
     # Data preparation and model loading/training (same as before, but in Streamlit context)
     features_cols = [
