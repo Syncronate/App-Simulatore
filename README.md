@@ -1,1 +1,2 @@
-# App-Simulatore
+torch
+streamlit
